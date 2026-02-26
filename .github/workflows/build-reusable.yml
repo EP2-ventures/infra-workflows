@@ -102,6 +102,9 @@ jobs:
             cp _infra/projects/${{ inputs.project }}/frontend/nginx.conf ${{ inputs.build_context }}/nginx.conf
           fi
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -119,6 +122,8 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ inputs.image_name }}:${{ steps.meta.outputs.tag }}
             ${{ env.REGISTRY }}/${{ inputs.image_name }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Summary
         run: |

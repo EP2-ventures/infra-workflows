@@ -38,9 +38,9 @@ on:
         required: true
       DEPLOY_SSH_KEY:
         required: true
-      GHCR_TOKEN:
-        description: "Token to authenticate with GHCR on the VPS"
-        required: true
+      DOPPLER_TOKEN:
+        description: "Doppler service token to regenerate .env on VPS"
+        required: false
 
 env:
   REGISTRY: ghcr.io
@@ -79,12 +79,12 @@ jobs:
       - name: Deploy to server
         uses: appleboy/ssh-action@v1
         env:
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: GHCR_TOKEN
+          envs: DOPPLER_TOKEN
           script: |
             set -eo pipefail
 
@@ -92,19 +92,24 @@ jobs:
             SERVICE="${{ inputs.service }}"
             IMAGE="${{ env.REGISTRY }}/${{ inputs.image_name }}:${{ inputs.image_tag }}"
 
-            echo "--- Authenticating with GHCR ---"
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u github --password-stdin
-
             echo "--- Deploying ${SERVICE} (${IMAGE}) ---"
 
             cd /opt/${PROJECT}
 
-            if [ ! -f .env ]; then
-              echo "WARNING: .env file not found — creating with IMAGE_TAG only"
-              echo "IMAGE_TAG=${{ inputs.image_tag }}" > .env
+            # Regenerate .env from Doppler if token is available
+            if [ -n "$DOPPLER_TOKEN" ]; then
+              echo "--- Refreshing secrets from Doppler ---"
+              doppler secrets download --format env --no-file > .env.tmp
+              echo "IMAGE_TAG=${{ inputs.image_tag }}" >> .env.tmp
+              mv .env.tmp .env
             else
-              sed -i '/^IMAGE_TAG=/d' .env
-              echo "IMAGE_TAG=${{ inputs.image_tag }}" >> .env
+              echo "--- No DOPPLER_TOKEN, using existing .env ---"
+              if [ ! -f .env ]; then
+                echo "IMAGE_TAG=${{ inputs.image_tag }}" > .env
+              else
+                sed -i '/^IMAGE_TAG=/d' .env
+                echo "IMAGE_TAG=${{ inputs.image_tag }}" >> .env
+              fi
             fi
 
             echo "--- .env keys ---"
@@ -115,8 +120,37 @@ jobs:
 
             docker compose -f docker-compose.prod.yml pull ${SERVICE}
             docker compose -f docker-compose.prod.yml up -d ${SERVICE}
-            docker image prune -f --filter "until=168h"
 
+            # Verify health
+            CONTAINER="${PROJECT}-${SERVICE}"
+            TIMEOUT=60
+            echo "--- Verifying health (${CONTAINER}) ---"
+            for i in $(seq 1 $TIMEOUT); do
+              STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null || echo "none")
+              case "$STATUS" in
+                healthy)
+                  echo "Service healthy after ${i}s"
+                  break
+                  ;;
+                unhealthy)
+                  echo "ERROR: Service unhealthy"
+                  docker logs "$CONTAINER" --tail 30
+                  exit 1
+                  ;;
+                none)
+                  echo "No healthcheck defined, skipping"
+                  break
+                  ;;
+              esac
+              if [ "$i" = "$TIMEOUT" ]; then
+                echo "ERROR: Health check timeout (${TIMEOUT}s)"
+                docker logs "$CONTAINER" --tail 30
+                exit 1
+              fi
+              sleep 1
+            done
+
+            docker image prune -f --filter "until=168h"
             echo "--- Deploy complete ---"
 
       - name: Summary
