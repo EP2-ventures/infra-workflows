@@ -54,33 +54,36 @@ SSH deploys a pre-built image to the VPS at `/opt/{project}/`.
 | `DEPLOY_HOST` | VPS hostname or IP |
 | `DEPLOY_USER` | SSH user |
 | `DEPLOY_SSH_KEY` | Private SSH key for VPS access |
-| `GHCR_TOKEN` | Token to pull images from GHCR on the VPS |
+| `DOPPLER_TOKEN` | (optional) Doppler service token — when provided, `.env` is regenerated from Doppler before deploy |
 
 ## Usage
 
 ```yaml
 # Build
-uses: EP2-ventures/infra-workflows/.github/workflows/build-reusable.yml@main
+uses: EP2-ventures/infra-workflows/.github/workflows/build-reusable.yml@v1
 with:
   service: backend
   project: boanalytics
   image_name: ep2-ventures/boanalytics-backend
   build_context: backend
+  infra_repo: EP2-ventures/infra
 secrets:
   INFRA_TOKEN: ${{ secrets.INFRA_TOKEN }}
 
 # Deploy
-uses: EP2-ventures/infra-workflows/.github/workflows/deploy-reusable.yml@main
+uses: EP2-ventures/infra-workflows/.github/workflows/deploy-reusable.yml@v1
 with:
   service: backend
   project: boanalytics
   image_name: ep2-ventures/boanalytics-backend
   image_tag: ${{ needs.build.outputs.image_tag }}
+  infra_repo: EP2-ventures/infra
 secrets:
+  INFRA_TOKEN: ${{ secrets.INFRA_TOKEN }}
   DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
   DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
   DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-  GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+  DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
 ```
 
 ## Infra / VPS contract
@@ -116,8 +119,16 @@ projects/
 ```
 
 - `{project}` must match the infra path and the `project` input.
-- `.env` is not touched by the workflow; create and maintain it on the VPS.
+- `.env` is regenerated from Doppler on each deploy when `DOPPLER_TOKEN` is provided. `IMAGE_TAG` is appended automatically.
+- Without `DOPPLER_TOKEN`, the existing `.env` is preserved and only `IMAGE_TAG` is updated.
 - The deploy step runs `docker compose -f docker-compose.prod.yml pull` and `up -d` in `/opt/{project}/`.
+
+## Concurrency
+
+Deploy jobs use a concurrency group `deploy-{project}` with `cancel-in-progress: false`. This means:
+- Only one deploy runs per project at a time.
+- Queued deploys wait (they are NOT cancelled).
+- This prevents containerd commit failures from concurrent `docker compose` operations.
 
 ## Tag convention
 
@@ -130,5 +141,5 @@ projects/
 When handing off a project to another org, the client can fork this repo and update their pipeline to use their fork:
 
 ```yaml
-uses: their-org/infra-workflows/.github/workflows/build-reusable.yml@main
+uses: their-org/infra-workflows/.github/workflows/build-reusable.yml@v1
 ```

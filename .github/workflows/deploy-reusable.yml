@@ -28,6 +28,16 @@ on:
         required: false
         type: string
         default: "main"
+      environment:
+        description: "GitHub environment name for deployment tracking (e.g. staging)"
+        required: false
+        type: string
+        default: ""
+      environment_url:
+        description: "URL shown in GitHub deployment status (e.g. https://api.boanalytics.ep2.ventures)"
+        required: false
+        type: string
+        default: ""
     secrets:
       INFRA_TOKEN:
         description: "PAT with read access to the infra repo"
@@ -48,6 +58,9 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment || inputs.project }}
+      url: ${{ inputs.environment_url || '' }}
     concurrency:
       group: deploy-${{ inputs.project }}
       cancel-in-progress: false
