@@ -24,9 +24,18 @@ on:
         required: false
         type: string
         default: ""
+      infra_repo:
+        description: "Infra repo (owner/repo) with Dockerfiles and configs"
+        required: true
+        type: string
+      infra_ref:
+        description: "Branch or ref to checkout from infra repo"
+        required: false
+        type: string
+        default: "main"
     secrets:
       INFRA_TOKEN:
-        description: "PAT with read access to EP2-ventures/infra"
+        description: "PAT with read access to the infra repo"
         required: true
     outputs:
       image_tag:
@@ -57,8 +66,8 @@ jobs:
       - name: Checkout infra repo
         uses: actions/checkout@v4
         with:
-          repository: EP2-ventures/infra
-          ref: main
+          repository: ${{ inputs.infra_repo }}
+          ref: ${{ inputs.infra_ref }}
           path: _infra
           token: ${{ secrets.INFRA_TOKEN }}
 

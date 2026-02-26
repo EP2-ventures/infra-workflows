@@ -19,7 +19,19 @@ on:
         description: "Image tag to deploy"
         required: true
         type: string
+      infra_repo:
+        description: "Infra repo (owner/repo) to copy docker-compose from"
+        required: true
+        type: string
+      infra_ref:
+        description: "Branch or ref to checkout from infra repo"
+        required: false
+        type: string
+        default: "main"
     secrets:
+      INFRA_TOKEN:
+        description: "PAT with read access to the infra repo"
+        required: true
       DEPLOY_HOST:
         required: true
       DEPLOY_USER:
@@ -38,6 +50,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout infra repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.infra_repo }}
+          ref: ${{ inputs.infra_ref }}
+          path: _infra
+          token: ${{ secrets.INFRA_TOKEN }}
+
+      - name: Copy docker-compose to VPS
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            _infra/projects/${{ inputs.project }}/docker-compose.prod.yml \
+            "$DEPLOY_USER@$DEPLOY_HOST:/opt/${{ inputs.project }}/"
+          rm -f ~/.ssh/deploy_key
+
       - name: Deploy to server
         uses: appleboy/ssh-action@v1
         env:

@@ -6,7 +6,7 @@ Public reusable GitHub Actions workflows for building and deploying Docker image
 
 ### build-reusable.yml
 
-Builds a Docker image and pushes to GHCR. Fetches Dockerfiles and configs from `EP2-ventures/infra` (private) via `INFRA_TOKEN`.
+Builds a Docker image and pushes to GHCR. Fetches Dockerfiles and configs from the infra repo via `INFRA_TOKEN`.
 
 **Inputs**
 
@@ -17,12 +17,14 @@ Builds a Docker image and pushes to GHCR. Fetches Dockerfiles and configs from `
 | `image_name` | yes | GHCR image name (e.g. `ep2-ventures/boanalytics-backend`) |
 | `build_context` | yes | Docker build context path relative to project repo root |
 | `build_args` | no | Docker build args, one per line `KEY=VALUE` |
+| `infra_repo` | yes | Infra repo `owner/repo` (e.g. `EP2-ventures/infra`, `playback-zone/pbz-infra`) |
+| `infra_ref` | no | Branch or ref to checkout from infra repo (default: `main`) |
 
 **Secrets**
 
 | Secret | Description |
 |--------|-------------|
-| `INFRA_TOKEN` | PAT with read access to `EP2-ventures/infra` |
+| `INFRA_TOKEN` | PAT with read access to the infra repo |
 
 **Outputs**
 
@@ -41,11 +43,14 @@ SSH deploys a pre-built image to the VPS at `/opt/{project}/`.
 | `project` | yes | Project name (must match VPS path) |
 | `image_name` | yes | GHCR image name |
 | `image_tag` | yes | Tag to deploy |
+| `infra_repo` | yes | Infra repo `owner/repo` — docker-compose is always copied before deploy |
+| `infra_ref` | no | Branch or ref to checkout from infra repo (default: `main`) |
 
 **Secrets**
 
 | Secret | Description |
 |--------|-------------|
+| `INFRA_TOKEN` | PAT to checkout infra repo (when `infra_repo` is set) |
 | `DEPLOY_HOST` | VPS hostname or IP |
 | `DEPLOY_USER` | SSH user |
 | `DEPLOY_SSH_KEY` | Private SSH key for VPS access |
@@ -77,6 +82,42 @@ secrets:
   DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
   GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
 ```
+
+## Infra / VPS contract
+
+The workflows expect a consistent layout in both the infra repo and on the VPS.
+
+### Infra repo layout
+
+```
+projects/
+  {project}/
+    backend/
+      Dockerfile.prod
+      .dockerignore
+      docker-entrypoint.prod.sh   # optional
+    frontend/
+      Dockerfile.prod
+      .dockerignore
+      nginx.conf                  # optional
+    docker-compose.prod.yml
+```
+
+- `{project}` must match the `project` input (e.g. `boanalytics`, `pbz`).
+- Each service (`backend`, `frontend`) needs a `Dockerfile.prod` and `.dockerignore`.
+- `docker-compose.prod.yml` defines services named `backend` and/or `frontend` and is copied to the VPS on every deploy.
+
+### VPS layout
+
+```
+/opt/{project}/
+  docker-compose.prod.yml   # overwritten on each deploy
+  .env                      # managed manually; contains secrets and config
+```
+
+- `{project}` must match the infra path and the `project` input.
+- `.env` is not touched by the workflow; create and maintain it on the VPS.
+- The deploy step runs `docker compose -f docker-compose.prod.yml pull` and `up -d` in `/opt/{project}/`.
 
 ## Tag convention
 
