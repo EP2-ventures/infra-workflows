@@ -45,6 +45,8 @@ SSH deploys a pre-built image to the VPS at `/opt/{project}/`.
 | `image_tag` | yes | Tag to deploy |
 | `infra_repo` | yes | Infra repo `owner/repo` — docker-compose is always copied before deploy |
 | `infra_ref` | no | Branch or ref to checkout from infra repo (default: `main`) |
+| `environment` | no | GitHub environment name for deployment tracking (defaults to `project` name) |
+| `environment_url` | no | URL shown in GitHub deployment status (e.g. `https://api.boanalytics.ep2.ventures`) |
 
 **Secrets**
 
