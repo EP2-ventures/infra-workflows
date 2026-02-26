@@ -1,0 +1,123 @@
+name: Reusable Build
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: "Service to build (backend or frontend)"
+        required: true
+        type: string
+      project:
+        description: "Project name (e.g. boanalytics)"
+        required: true
+        type: string
+      image_name:
+        description: "GHCR image name (e.g. ep2-ventures/boanalytics-backend)"
+        required: true
+        type: string
+      build_context:
+        description: "Docker build context path relative to project repo root"
+        required: true
+        type: string
+      build_args:
+        description: "Docker build args (one per line, KEY=VALUE)"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      INFRA_TOKEN:
+        description: "PAT with read access to EP2-ventures/infra"
+        required: true
+    outputs:
+      image_tag:
+        description: "The tag applied to the built image"
+        value: ${{ jobs.build.outputs.image_tag }}
+      image_url:
+        description: "Full image URL including registry"
+        value: ${{ jobs.build.outputs.image_url }}
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+      image_url: ${{ steps.meta.outputs.url }}
+
+    steps:
+      - name: Checkout project repo
+        uses: actions/checkout@v4
+
+      - name: Checkout infra repo
+        uses: actions/checkout@v4
+        with:
+          repository: EP2-ventures/infra
+          ref: main
+          path: _infra
+          token: ${{ secrets.INFRA_TOKEN }}
+
+      - name: Compute image tag
+        id: meta
+        run: |
+          BRANCH="${GITHUB_REF_NAME}"
+          CLEAN=$(echo "$BRANCH" | tr '/' '.')
+          RUN="${{ github.run_number }}"
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
+
+          if [ "$BRANCH" = "staging" ]; then
+            TAG="staging-${RUN}-${SHA_SHORT}"
+          elif [ "$BRANCH" = "main" ]; then
+            TAG="release-${RUN}-${SHA_SHORT}"
+          else
+            TAG="snapshot-${CLEAN}-${RUN}-${SHA_SHORT}"
+          fi
+
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "url=${{ env.REGISTRY }}/${{ inputs.image_name }}:${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Image tag: ${TAG}"
+
+      - name: Copy infra files into build context
+        run: |
+          cp _infra/projects/${{ inputs.project }}/${{ inputs.service }}/Dockerfile.prod ${{ inputs.build_context }}/Dockerfile.prod
+          cp _infra/projects/${{ inputs.project }}/${{ inputs.service }}/.dockerignore ${{ inputs.build_context }}/.dockerignore
+          if [ "${{ inputs.service }}" = "backend" ]; then
+            cp _infra/projects/${{ inputs.project }}/backend/docker-entrypoint.prod.sh ${{ inputs.build_context }}/docker-entrypoint.prod.sh
+          fi
+          if [ "${{ inputs.service }}" = "frontend" ]; then
+            cp _infra/projects/${{ inputs.project }}/frontend/nginx.conf ${{ inputs.build_context }}/nginx.conf
+          fi
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ inputs.build_context }}
+          file: ./${{ inputs.build_context }}/Dockerfile.prod
+          push: true
+          build-args: ${{ inputs.build_args }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ inputs.image_name }}:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ inputs.image_name }}:latest
+
+      - name: Summary
+        run: |
+          echo "### Build complete :package:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Property | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Image** | \`${{ inputs.image_name }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Tag** | \`${{ steps.meta.outputs.tag }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Branch** | \`${GITHUB_REF_NAME}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"

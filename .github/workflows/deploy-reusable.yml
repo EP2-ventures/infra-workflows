@@ -1,0 +1,94 @@
+name: Reusable Deploy
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: "Service to deploy (backend or frontend)"
+        required: true
+        type: string
+      project:
+        description: "Project name (e.g. boanalytics)"
+        required: true
+        type: string
+      image_name:
+        description: "GHCR image name (e.g. ep2-ventures/boanalytics-backend)"
+        required: true
+        type: string
+      image_tag:
+        description: "Image tag to deploy"
+        required: true
+        type: string
+    secrets:
+      DEPLOY_HOST:
+        required: true
+      DEPLOY_USER:
+        required: true
+      DEPLOY_SSH_KEY:
+        required: true
+      GHCR_TOKEN:
+        description: "Token to authenticate with GHCR on the VPS"
+        required: true
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: GHCR_TOKEN
+          script: |
+            set -eo pipefail
+
+            PROJECT="${{ inputs.project }}"
+            SERVICE="${{ inputs.service }}"
+            IMAGE="${{ env.REGISTRY }}/${{ inputs.image_name }}:${{ inputs.image_tag }}"
+
+            echo "--- Authenticating with GHCR ---"
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u github --password-stdin
+
+            echo "--- Deploying ${SERVICE} (${IMAGE}) ---"
+
+            cd /opt/${PROJECT}
+            export IMAGE_TAG=${{ inputs.image_tag }}
+
+            echo "--- Environment variables (.env) ---"
+            if [ -f .env ]; then
+              grep -v '^#' .env | grep -v '^$' | cut -d= -f1 | while read key; do
+                val=$(grep "^${key}=" .env | cut -d= -f2-)
+                if [ -n "$val" ]; then
+                  echo "  ${key} = [set]"
+                else
+                  echo "  ${key} = [empty]"
+                fi
+              done
+            else
+              echo "  WARNING: .env file not found!"
+            fi
+            echo "---"
+
+            docker compose -f docker-compose.prod.yml pull ${SERVICE}
+            docker compose -f docker-compose.prod.yml up -d ${SERVICE}
+            docker image prune -f
+
+            echo "--- Deploy complete ---"
+
+      - name: Summary
+        run: |
+          echo "### Deploy complete :rocket:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Property | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Project** | \`${{ inputs.project }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Service** | \`${{ inputs.service }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Image** | \`${{ inputs.image_name }}:${{ inputs.image_tag }}\` |" >> "$GITHUB_STEP_SUMMARY"
