@@ -109,11 +109,15 @@ jobs:
 
             cd /opt/${PROJECT}
 
+            # Per-service image tag variable (e.g. BACKEND_IMAGE_TAG, FRONTEND_IMAGE_TAG)
+            SVC_TAG_VAR="$(echo "${SERVICE}" | tr '[:lower:]' '[:upper:]')_IMAGE_TAG"
+
             # Regenerate .env from Doppler if token is available
             if [ -n "$DOPPLER_TOKEN" ]; then
               echo "--- Refreshing secrets from Doppler ---"
               doppler secrets download --format env --no-file > .env.tmp
               echo "IMAGE_TAG=${{ inputs.image_tag }}" >> .env.tmp
+              echo "${SVC_TAG_VAR}=${{ inputs.image_tag }}" >> .env.tmp
               mv .env.tmp .env
             else
               echo "--- No DOPPLER_TOKEN, using existing .env ---"
@@ -123,6 +127,8 @@ jobs:
                 sed -i '/^IMAGE_TAG=/d' .env
                 echo "IMAGE_TAG=${{ inputs.image_tag }}" >> .env
               fi
+              sed -i "/^${SVC_TAG_VAR}=/d" .env
+              echo "${SVC_TAG_VAR}=${{ inputs.image_tag }}" >> .env
             fi
 
             echo "--- .env keys ---"
