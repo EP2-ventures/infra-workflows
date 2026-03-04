@@ -109,8 +109,9 @@ jobs:
 
             cd /opt/${PROJECT}
 
-            # Per-service image tag variable (e.g. BACKEND_IMAGE_TAG, FRONTEND_IMAGE_TAG)
-            SVC_TAG_VAR="$(echo "${SERVICE}" | tr '[:lower:]' '[:upper:]')_IMAGE_TAG"
+            # Per-service image tag variable (e.g. BACKEND_IMAGE_TAG, LANDING_V0_IMAGE_TAG)
+            # Hyphens are converted to underscores to produce valid shell variable names.
+            SVC_TAG_VAR="$(echo "${SERVICE}" | tr '[:lower:]-' '[:upper:]_')_IMAGE_TAG"
 
             # Regenerate .env from Doppler if token is available
             if [ -n "$DOPPLER_TOKEN" ]; then

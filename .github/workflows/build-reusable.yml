@@ -95,11 +95,15 @@ jobs:
         run: |
           cp _infra/projects/${{ inputs.project }}/${{ inputs.service }}/Dockerfile.prod ${{ inputs.build_context }}/Dockerfile.prod
           cp _infra/projects/${{ inputs.project }}/${{ inputs.service }}/.dockerignore ${{ inputs.build_context }}/.dockerignore
-          if [ "${{ inputs.service }}" = "backend" ]; then
-            cp _infra/projects/${{ inputs.project }}/backend/docker-entrypoint.prod.sh ${{ inputs.build_context }}/docker-entrypoint.prod.sh
+
+          ENTRYPOINT="_infra/projects/${{ inputs.project }}/${{ inputs.service }}/docker-entrypoint.prod.sh"
+          if [ -f "$ENTRYPOINT" ]; then
+            cp "$ENTRYPOINT" "${{ inputs.build_context }}/docker-entrypoint.prod.sh"
           fi
-          if [ "${{ inputs.service }}" = "frontend" ]; then
-            cp _infra/projects/${{ inputs.project }}/frontend/nginx.conf ${{ inputs.build_context }}/nginx.conf
+
+          NGINX="_infra/projects/${{ inputs.project }}/${{ inputs.service }}/nginx.conf"
+          if [ -f "$NGINX" ]; then
+            cp "$NGINX" "${{ inputs.build_context }}/nginx.conf"
           fi
 
       - name: Set up Docker Buildx
