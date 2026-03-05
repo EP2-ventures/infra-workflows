@@ -145,30 +145,31 @@ jobs:
             CONTAINER="${PROJECT}-${SERVICE}"
             TIMEOUT=60
             echo "--- Verifying health (${CONTAINER}) ---"
-            for i in $(seq 1 $TIMEOUT); do
-              STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null || echo "none")
-              case "$STATUS" in
-                healthy)
-                  echo "Service healthy after ${i}s"
-                  break
-                  ;;
-                unhealthy)
-                  echo "ERROR: Service unhealthy"
+            STATUS=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$CONTAINER" 2>/dev/null || echo "none")
+            if [ "$STATUS" = "none" ]; then
+              echo "No healthcheck defined, skipping"
+            else
+              for i in $(seq 1 $TIMEOUT); do
+                STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null || echo "unknown")
+                case "$STATUS" in
+                  healthy)
+                    echo "Service healthy after ${i}s"
+                    break
+                    ;;
+                  unhealthy)
+                    echo "ERROR: Service unhealthy"
+                    docker logs "$CONTAINER" --tail 30
+                    exit 1
+                    ;;
+                esac
+                if [ "$i" = "$TIMEOUT" ]; then
+                  echo "ERROR: Health check timeout (${TIMEOUT}s)"
                   docker logs "$CONTAINER" --tail 30
                   exit 1
-                  ;;
-                none|"")
-                  echo "No healthcheck defined, skipping"
-                  break
-                  ;;
-              esac
-              if [ "$i" = "$TIMEOUT" ]; then
-                echo "ERROR: Health check timeout (${TIMEOUT}s)"
-                docker logs "$CONTAINER" --tail 30
-                exit 1
-              fi
-              sleep 1
-            done
+                fi
+                sleep 1
+              done
+            fi
 
             docker image prune -f --filter "until=168h"
             echo "--- Deploy complete ---"
