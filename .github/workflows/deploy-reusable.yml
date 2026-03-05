@@ -157,7 +157,7 @@ jobs:
                   docker logs "$CONTAINER" --tail 30
                   exit 1
                   ;;
-                none)
+                none|"")
                   echo "No healthcheck defined, skipping"
                   break
                   ;;
