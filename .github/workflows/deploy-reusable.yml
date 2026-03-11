@@ -51,6 +51,9 @@ on:
       DOPPLER_TOKEN:
         description: "Doppler service token to regenerate .env on VPS"
         required: false
+      GHCR_TOKEN:
+        description: "Token with read:packages scope to pull images from GHCR on the VPS"
+        required: false
 
 env:
   REGISTRY: ghcr.io
@@ -93,11 +96,12 @@ jobs:
         uses: appleboy/ssh-action@v1
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: DOPPLER_TOKEN
+          envs: DOPPLER_TOKEN,GHCR_TOKEN
           script: |
             set -eo pipefail
 
@@ -137,6 +141,11 @@ jobs:
               echo "  ${key}"
             done
             echo "---"
+
+            # Authenticate with GHCR if token is provided
+            if [ -n "$GHCR_TOKEN" ]; then
+              echo "$GHCR_TOKEN" | docker login ghcr.io -u x --password-stdin
+            fi
 
             docker compose -f docker-compose.prod.yml pull ${SERVICE}
             docker compose -f docker-compose.prod.yml up -d ${SERVICE}
