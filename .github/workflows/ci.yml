@@ -1,0 +1,34 @@
+name: CI
+
+# This repository has no application code, so nothing here ran until 2026-08-21 —
+# and its two workflows are consumed by every estate project through `@v1`, which
+# makes it the highest-blast-radius repo in the estate with the least coverage.
+# Start with the one behaviour that has already been wrong in production.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    name: Deploy-script regression tests
+    # ubuntu, not macos: the tests exercise the workflow's own `sed -i`, which is
+    # GNU's on the deploy host. The test refuses to run under BSD sed rather than
+    # reporting a platform difference as a defect.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/env-pin-preservation.sh
+
+  lint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker://rhysd/actionlint:latest
+        with:
+          args: -color
