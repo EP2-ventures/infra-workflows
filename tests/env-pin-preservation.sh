@@ -40,11 +40,16 @@ bad() { echo "  ✘ $1"; fail=1; }
 # From the `preserve_pins()` definition through the end of the DOPPLER_TOKEN
 # if/else, dedented. `${{ inputs.image_tag }}` becomes the shell var the harness
 # sets, which is the only substitution made.
-awk '
+# `tr -d '\r'` FIRST: this workflow file has CRLF line endings, and without the
+# strip the extractor's `/^ *fi *$/` never matches (the line ends `fi\r`), so it
+# runs past the block and emits shell that dies on `$'{\r'`. Measured — and the
+# harness happily printed three green assertions while the block had not executed
+# at all, which is why the run-check below exists.
+tr -d '\r' < "$WF" | awk '
   /^ *preserve_pins\(\) \{/ { on=1 }
   on { print }
   on && /^ *fi *$/ { exit }
-' "$WF" | sed -e 's/^            //' -e 's/\${{ inputs\.image_tag }}/${TAG}/g' > "$TMP/block.sh"
+' | sed -e 's/^            //' -e 's/\${{ inputs\.image_tag }}/${TAG}/g' > "$TMP/block.sh"
 
 if ! grep -q 'preserve_pins .env.tmp' "$TMP/block.sh"; then
   echo "EXTRACTION FAILED: could not find the .env-writing block in $WF."
@@ -68,7 +73,14 @@ run_deploy() {  # $1 = service   $2 = tag
   SVC_TAG_VAR="$(echo "${SERVICE}" | tr '[:lower:]-' '[:upper:]_')_IMAGE_TAG"
   DOPPLER_TOKEN="stub"
   export SERVICE TAG SVC_TAG_VAR DOPPLER_TOKEN
-  ( set -eo pipefail; . "$TMP/block.sh" ) > /dev/null
+  # A block that fails to RUN must not leave the previous .env in place and let the
+  # assertions grade it. That happened once (CRLF in the extracted shell) and three
+  # assertions went green against a file nothing had touched.
+  if ! ( set -eo pipefail; . "$TMP/block.sh" ) > /dev/null 2> "$TMP/err"; then
+    echo "  ✘ EXTRACTED BLOCK FAILED TO EXECUTE — every assertion below would be about the PREVIOUS .env:"
+    sed 's/^/      /' "$TMP/err"
+    exit 2
+  fi
 }
 
 cd "$TMP"
