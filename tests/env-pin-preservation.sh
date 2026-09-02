@@ -71,6 +71,10 @@ fi
 
 echo "Extracted $(wc -l < "$TMP/block.sh") lines of the real workflow script,"
 echo "plus its own SVC_TAG_VAR derivation: $(cat "$TMP/svcvar.sh")"
+# Name the platform. This suite has already had one defect that was live on bash 5
+# and invisible on bash 3.2 (see run_deploy), so a result that does not say which
+# shell and which sed produced it is not a result.
+echo "bash ${BASH_VERSION} · $(sed --version | head -1)"
 echo
 
 cat > "$TMP/doppler" <<'STUB'
@@ -98,8 +102,22 @@ run_deploy() {  # $1 = service   $2 = tag   [$3 = DOPPLER_TOKEN, "" for the no-D
   # A block that fails to RUN must not leave the previous .env in place and let the
   # assertions grade it. That happened once (CRLF in the extracted shell) and three
   # assertions went green against a file nothing had touched.
-  if ! ( set -eo pipefail; . "$TMP/block.sh" ) > /dev/null 2> "$TMP/err"; then
-    echo "  ✘ EXTRACTED BLOCK FAILED TO EXECUTE — every assertion below would be about the PREVIOUS .env:"
+  #
+  # ⚠️ Run the subshell STANDALONE and read $? — never as the condition of an `if`.
+  # bash suppresses errexit for a command in an if/while condition, and in bash 5
+  # that suppression reaches INTO the subshell and overrides its own explicit
+  # `set -e`. Written as `if ! ( set -eo pipefail; . block.sh ); then`, this guard
+  # was inert on exactly the platform that matters: measured on bash 5.3, a block
+  # whose first statement fails runs on to the end and the guard reports success.
+  # bash 3.2 (macOS) happened to abort, so the bug was invisible where the author
+  # was working and live on ubuntu-latest — CI, and the deploy host's shell.
+  # The deploy host runs this block under `set -eo pipefail` for real, so a harness
+  # that runs it WITHOUT effective errexit is not testing the same code path at all.
+  # Caught by tests/mutants.sh M1, which survived in CI and died here.
+  ( set -eo pipefail; . "$TMP/block.sh" ) > /dev/null 2> "$TMP/err"
+  rc=$?
+  if [ "$rc" != "0" ]; then
+    echo "  ✘ EXTRACTED BLOCK FAILED TO EXECUTE (exit $rc) — every assertion below would be about the PREVIOUS .env:"
     sed 's/^/      /' "$TMP/err"
     exit 2
   fi
