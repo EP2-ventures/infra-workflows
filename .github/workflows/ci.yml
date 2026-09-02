@@ -23,6 +23,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash tests/env-pin-preservation.sh
+      # A suite that cannot go red is a decoration that looks exactly like a gate,
+      # so the discrimination is enforced, not asserted once in a PR comment: this
+      # breaks the workflow four ways and requires each break to surface as a named
+      # failure of the case that owns it. Seconds, no network.
+      - run: bash tests/mutants.sh
 
   lint:
     name: actionlint
