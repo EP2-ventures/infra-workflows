@@ -1,0 +1,22 @@
+# actionlint configuration.
+#
+# The `lint` job in ci.yml fails the build on ANY actionlint finding, because a
+# lint gate that cannot go red is not a gate. That is only tolerable if the
+# baseline is clean — and it was not: two pre-existing shellcheck SC2129 notes
+# (build-reusable.yml:135 and deploy-reusable.yml:240, both in the "Summary"
+# steps that append several lines to $GITHUB_STEP_SUMMARY with individual `>>`
+# redirects) made the job exit 1 the moment it was added.
+#
+# SC2129 is a pure style preference — "consider `{ cmd1; cmd2; } >> file`" — with
+# no behavioural difference. It is silenced here rather than by rewriting those
+# two run-blocks, because both live in the reusable workflows every estate
+# project consumes through `@v1`: a cosmetic edit there is a production deploy
+# change, and it is not worth one.
+#
+# ⚠️ This ignores SC2129 ONLY. Every other shellcheck rule, and every actionlint
+# rule, still fails the build. Verified by negative control: with this file in
+# place, an injected undefined-context expression still exits 1.
+paths:
+  .github/workflows/**.{yml,yaml}:
+    ignore:
+      - "shellcheck reported issue in this script: SC2129"

@@ -117,24 +117,77 @@ jobs:
             # Hyphens are converted to underscores to produce valid shell variable names.
             SVC_TAG_VAR="$(echo "${SERVICE}" | tr '[:lower:]-' '[:upper:]_')_IMAGE_TAG"
 
-            # Regenerate .env from Doppler if token is available
+            # ── A ROLLBACK MUST SURVIVE THE OTHER SERVICE'S NEXT DEPLOY ──────────
+            #
+            # This block used to write the Doppler dump plus ONLY the deploying
+            # service's `<SVC>_IMAGE_TAG` and `mv` it over .env. .env is REPLACED,
+            # not amended, so every other service's pin was dropped and compose then
+            # resolved that service to `${...:-latest}` on its next recreate — a
+            # reboot, a daemon restart, a plain `compose up -d`. So rolling service A
+            # back to a known-good image and then deploying service B left A due to
+            # jump FORWARD to `latest`, i.e. back to the image you had just rolled
+            # away from, the moment anything restarted it.
+            #
+            # Measured on privilege-gardens' live host 2026-08-20: /opt/privilege-
+            # gardens/.env held ADMIN_IMAGE_TAG=snapshot-production-77-fb75ad0 and
+            # ZERO LANDING_IMAGE_TAG lines, while `docker compose config` resolved
+            # landing to `:latest` and the running container was on
+            # snapshot-production-77-fb75ad0. Harmless only because `latest` happened
+            # to be the same digest that day.
+            #
+            # Neither obvious workaround helped, because both only move WHICH service
+            # is unpinned: deploying the other service too makes ITS regeneration drop
+            # the first one's pin, and `service: all` serializes the two so the last
+            # one wins. Exactly one service was ever pinned — whichever deployed last.
+            #
+            # So: carry every pre-existing *_IMAGE_TAG across the regeneration, and
+            # write this deploy's own pins LAST. Deliberately by DELETING then
+            # APPENDING rather than relying on a later duplicate line winning: the
+            # previous code assumed compose's parser takes the last definition and
+            # nothing here ever verified it. Every key now appears exactly once, so
+            # the result does not depend on that assumption at all.
+            preserve_pins() {
+              # $1 = file being built. Copies forward the pins in the LIVE .env that
+              # this deploy is not itself setting.
+              [ -f .env ] || return 0
+              grep -E '^[A-Za-z0-9_]+_IMAGE_TAG=' .env > .env.pins || true
+              while IFS= read -r line; do
+                key="${line%%=*}"
+                # Skip the ones this deploy sets below — they must not be carried
+                # forward stale, and they are appended last anyway.
+                [ "$key" = "$SVC_TAG_VAR" ] && continue
+                sed -i "/^${key}=/d" "$1"
+                printf '%s\n' "$line" >> "$1"
+                echo "  carried forward: ${key}"
+              done < .env.pins
+              rm -f .env.pins
+            }
+
             if [ -n "$DOPPLER_TOKEN" ]; then
               echo "--- Refreshing secrets from Doppler ---"
               doppler secrets download --format env --no-file > .env.tmp
+              preserve_pins .env.tmp
+              # This deploy's own pins, last, with any duplicate removed first so
+              # each key is written exactly once.
+              sed -i '/^IMAGE_TAG=/d' .env.tmp
+              sed -i "/^${SVC_TAG_VAR}=/d" .env.tmp
               echo "IMAGE_TAG=${{ inputs.image_tag }}" >> .env.tmp
               echo "${SVC_TAG_VAR}=${{ inputs.image_tag }}" >> .env.tmp
               mv .env.tmp .env
             else
               echo "--- No DOPPLER_TOKEN, using existing .env ---"
-              if [ ! -f .env ]; then
-                echo "IMAGE_TAG=${{ inputs.image_tag }}" > .env
-              else
-                sed -i '/^IMAGE_TAG=/d' .env
-                echo "IMAGE_TAG=${{ inputs.image_tag }}" >> .env
-              fi
+              # This path already amends in place, so other services' pins were never
+              # at risk here. Left equivalent, only made key-unique like the branch
+              # above.
+              [ -f .env ] || : > .env
+              sed -i '/^IMAGE_TAG=/d' .env
               sed -i "/^${SVC_TAG_VAR}=/d" .env
+              echo "IMAGE_TAG=${{ inputs.image_tag }}" >> .env
               echo "${SVC_TAG_VAR}=${{ inputs.image_tag }}" >> .env
             fi
+
+            echo "--- image pins now in .env ---"
+            grep -E '^[A-Za-z0-9_]*IMAGE_TAG=' .env | sed 's/^/  /'
 
             echo "--- .env keys ---"
             grep -v '^#' .env | grep -v '^$' | cut -d= -f1 | while read key; do
