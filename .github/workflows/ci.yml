@@ -29,6 +29,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: docker://rhysd/actionlint:latest
+      # Pinned, not `:latest`. This job fails the build on ANY finding, and the
+      # only thing keeping it green is `.github/actionlint.yaml`, whose ignore is
+      # a LITERAL message string ("shellcheck reported issue in this script:
+      # SC2129"). A floating tag lets a future release change that wording, or add
+      # a rule, and turn `main` red with no commit to blame — the gate would stop
+      # being about this repo's code. 1.7.12 is the version the SC2129 baseline
+      # and its negative control were actually measured against, and it is the
+      # exact image CI already ran: `rhysd/actionlint:latest` and
+      # `rhysd/actionlint:1.7.12` both resolve to
+      # sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667,
+      # which is the digest run 33634293434 pulled. So this pin changes no
+      # behaviour today; it only stops it changing tomorrow.
+      #
+      # A tag and not a digest on purpose: this repo's Actions policy is
+      # `selected` and its pattern for this image is `docker://rhysd/actionlint:*`,
+      # which matches a tag. `docker://rhysd/actionlint@sha256:...` would not, and
+      # a non-matching action is a `startup_failure` — a job that never runs, which
+      # is the exact failure mode this branch was opened under.
+      - uses: docker://rhysd/actionlint:1.7.12
         with:
           args: -color
